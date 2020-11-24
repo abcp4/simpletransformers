@@ -57,7 +57,7 @@ def encode_sliding_window(data):
 class SimpleDataset(Dataset):
     def __init__(self, tokenizer, args, folder_path, mode, block_size=512, special_tokens_count=2, sliding_window=False):
         #assert os.path.isfile(file_path)
-        files_paths = glob.glob(folder_path)
+        files_paths = glob.glob(folder_path+'/*')
         c = 0
         for file_path in files_paths:
             c+=1
