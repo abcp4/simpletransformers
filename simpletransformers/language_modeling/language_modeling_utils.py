@@ -1,5 +1,6 @@
 import logging
 import os
+import glob
 import pickle
 from multiprocessing import Pool
 from typing import Tuple
@@ -55,75 +56,83 @@ def encode_sliding_window(data):
 
 class SimpleDataset(Dataset):
     def __init__(self, tokenizer, args, file_path, mode, block_size=512, special_tokens_count=2, sliding_window=False):
-        assert os.path.isfile(file_path)
-        block_size = block_size - special_tokens_count
-        directory, filename = os.path.split(file_path)
-        cached_features_file = os.path.join(
-            args.cache_dir, args.model_type + "_cached_lm_" + str(block_size) + "_" + filename
-        )
+        #assert os.path.isfile(file_path)
+        files_paths = glob.glob(file_path)
+        c = 0
+        for file_path in files_paths:
+            c+=1
+            print("File number: ",c)
+            print("File name: ",file_path)
+            assert os.path.isfile(file_path)
+        
+            block_size = block_size - special_tokens_count
+            directory, filename = os.path.split(file_path)
+            cached_features_file = os.path.join(
+                args.cache_dir, args.model_type + "_cached_lm_" + str(block_size) + "_" + filename
+            )
 
-        if os.path.exists(cached_features_file) and (
-            (not args.reprocess_input_data and not args.no_cache)
-            or (mode == "dev" and args.use_cached_eval_features and not args.no_cache)
-        ):
-            logger.info(" Loading features from cached file %s", cached_features_file)
-            with open(cached_features_file, "rb") as handle:
-                self.examples = pickle.load(handle)
-        else:
-            logger.info(" Creating features from dataset file at %s", args.cache_dir)
-
-            if sliding_window:
-                no_padding = True if args.model_type in ["gpt2", "openai-gpt"] else False
-                with open(file_path, encoding="utf-8") as f:
-                    lines = [
-                        (tokenizer, line, args.max_seq_length, special_tokens_count, args.stride, no_padding)
-                        for line in f.read().splitlines()
-                        if (len(line) > 0 and not line.isspace())
-                    ]
-
-                if args.use_multiprocessing:
-                    with Pool(args.process_count) as p:
-                        self.examples = list(
-                            tqdm(
-                                p.imap(encode_sliding_window, lines, chunksize=args.multiprocessing_chunksize),
-                                total=len(lines),
-                                # disable=silent,
-                            )
-                        )
-                else:
-                    self.examples = [encode_sliding_window(line) for line in lines]
-
-                self.examples = [example for example_set in self.examples for example in example_set]
+            if os.path.exists(cached_features_file) and (
+                (not args.reprocess_input_data and not args.no_cache)
+                or (mode == "dev" and args.use_cached_eval_features and not args.no_cache)
+            ):
+                logger.info(" Loading features from cached file %s", cached_features_file)
+                with open(cached_features_file, "rb") as handle:
+                    self.examples = pickle.load(handle)
             else:
-                with open(file_path, encoding="utf-8") as f:
-                    lines = [
-                        (tokenizer, line) for line in f.read().splitlines() if (len(line) > 0 and not line.isspace())
-                    ]
+                logger.info(" Creating features from dataset file at %s", args.cache_dir)
 
-                if args.use_multiprocessing:
-                    with Pool(args.process_count) as p:
-                        self.examples = list(
-                            tqdm(
-                                p.imap(encode, lines, chunksize=args.multiprocessing_chunksize),
-                                total=len(lines),
-                                # disable=silent,
+                if sliding_window:
+                    no_padding = True if args.model_type in ["gpt2", "openai-gpt"] else False
+                    with open(file_path, encoding="utf-8") as f:
+                        lines = [
+                            (tokenizer, line, args.max_seq_length, special_tokens_count, args.stride, no_padding)
+                            for line in f.read().splitlines()
+                            if (len(line) > 0 and not line.isspace())
+                        ]
+
+                    if args.use_multiprocessing:
+                        with Pool(args.process_count) as p:
+                            self.examples = list(
+                                tqdm(
+                                    p.imap(encode_sliding_window, lines, chunksize=args.multiprocessing_chunksize),
+                                    total=len(lines),
+                                    # disable=silent,
+                                )
                             )
-                        )
-                else:
-                    self.examples = [encode(line) for line in lines]
+                    else:
+                        self.examples = [encode_sliding_window(line) for line in lines]
 
-                self.examples = [token for tokens in self.examples for token in tokens]
-                if len(self.examples) > block_size:
-                    self.examples = [
-                        tokenizer.build_inputs_with_special_tokens(self.examples[i : i + block_size])
-                        for i in tqdm(range(0, len(self.examples) - block_size + 1, block_size))
-                    ]
+                    self.examples = [example for example_set in self.examples for example in example_set]
                 else:
-                    self.examples = [tokenizer.build_inputs_with_special_tokens(self.examples)]
+                    with open(file_path, encoding="utf-8") as f:
+                        lines = [
+                            (tokenizer, line) for line in f.read().splitlines() if (len(line) > 0 and not line.isspace())
+                        ]
 
-            logger.info(" Saving features into cached file %s", cached_features_file)
-            with open(cached_features_file, "wb") as handle:
-                pickle.dump(self.examples, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    if args.use_multiprocessing:
+                        with Pool(args.process_count) as p:
+                            self.examples = list(
+                                tqdm(
+                                    p.imap(encode, lines, chunksize=args.multiprocessing_chunksize),
+                                    total=len(lines),
+                                    # disable=silent,
+                                )
+                            )
+                    else:
+                        self.examples = [encode(line) for line in lines]
+
+                    self.examples = [token for tokens in self.examples for token in tokens]
+                    if len(self.examples) > block_size:
+                        self.examples = [
+                            tokenizer.build_inputs_with_special_tokens(self.examples[i : i + block_size])
+                            for i in tqdm(range(0, len(self.examples) - block_size + 1, block_size))
+                        ]
+                    else:
+                        self.examples = [tokenizer.build_inputs_with_special_tokens(self.examples)]
+
+                logger.info(" Saving features into cached file %s", cached_features_file)
+                with open(cached_features_file, "wb") as handle:
+                    pickle.dump(self.examples, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     def __len__(self):
         return len(self.examples)
